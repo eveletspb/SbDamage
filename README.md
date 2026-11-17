@@ -77,7 +77,13 @@ The layout uses the measured size of each number, spell icon, target scale, and 
 
 When no nameplate can be identified, all unknown targets share the same compact three-stream fallback cluster. This is intentional: the client exposes no reliable position for those units, and guessing separate screen positions would recreate the scattered layout.
 
+Identical names are treated as ambiguous unless the selected target's plate can be identified. Ambiguous hits use the fallback cluster instead of being assigned to a random same-name unit. GUID-to-frame guesses are not cached because this client recycles nameplate frames. Active numbers follow moving plates, and placement is resolved again periodically or when a plate disappears.
+
 The recommended `Shared series` icon mode displays an icon only on the first hit from the same ability within a short time window. `Series per target` applies that short window separately to each affected unit, while `Every hit` is available for maximum detail. Icon filtering never merges damage numbers, and every visible critical hit is still animated independently.
+
+## Regression checks
+
+From the addon directory, run `lua tests/run.lua` with a standalone Lua interpreter. The tests use simulated WoW frames to cover same-name targets, hidden and moving plates, stream merging, cache growth, and screen-space positioning during critical and pet scaling. They do not replace a visual check in the game client after `/reload`.
 
 ## Installation
 

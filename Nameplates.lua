@@ -173,15 +173,6 @@ function addon:ScanNameplates(now)
     end
 end
 
-local function contains(frames, wanted)
-    for _, frame in ipairs(frames) do
-        if frame == wanted then
-            return true
-        end
-    end
-    return false
-end
-
 local function findSelectedNameplate(frames)
     local selected
     for _, frame in ipairs(frames) do
@@ -189,7 +180,7 @@ local function findSelectedNameplate(frames)
         if type(alpha) ~= "number" and frame.GetAlpha then
             alpha = frame:GetAlpha()
         end
-        if type(alpha) == "number" and alpha >= 0.99 then
+        if isVisible(frame) and type(alpha) == "number" and alpha >= 0.99 then
             if selected then
                 return nil
             end
@@ -200,59 +191,25 @@ local function findSelectedNameplate(frames)
 end
 
 function addon:FindNameplate(damage, now)
-    self.destinationNameplates = self.destinationNameplates or {}
     local guid = damage.destinationGUID
-    local assigned = guid and self.destinationNameplates[guid]
-    if assigned and isVisible(assigned) then
-        self.nameplateLookupNames = self.nameplateLookupNames or {}
-        self.nameplateLookupSeen = self.nameplateLookupSeen or {}
-        local names = self:GetNameplateNames(assigned, self.nameplateLookupNames, self.nameplateLookupSeen)
-        for _, name in ipairs(names) do
-            if name == damage.destinationName then
-                return assigned
-            end
-        end
-    end
-
     self:ScanNameplates(now)
     local matches = damage.destinationName
         and self.nameplatesByName
         and self.nameplatesByName[damage.destinationName]
-    if guid and UnitGUID and UnitGUID("target") == guid then
-        local candidates = matches and #matches > 0 and matches or self.visibleNameplates or {}
-        local selected = findSelectedNameplate(candidates)
-        if selected then
-            self.destinationNameplates[guid] = selected
-            return selected
-        end
-        if matches and #matches > 1 then
-            return nil
-        end
-    end
-
-    if not damage.destinationName then
-        return nil
-    end
     if not matches or #matches == 0 then
         return nil
     end
-
-    assigned = guid and self.destinationNameplates[guid]
-    if assigned then
-        if contains(matches, assigned) then
-            return assigned
-        end
-        self.destinationNameplates[guid] = nil
-        assigned = nil
+    local selectedGUID = UnitGUID and UnitGUID("target")
+    if guid and selectedGUID == guid then
+        return findSelectedNameplate(matches)
+    elseif guid and selectedGUID and UnitName and UnitName("target") == damage.destinationName then
+        -- The only visible plate may belong to a different, selected unit.
+        return nil
     end
 
-    if not assigned then
-        self.nameplateSequence = (self.nameplateSequence or 0) + 1
-        assigned = matches[(self.nameplateSequence - 1) % #matches + 1]
+    -- Classic nameplates are recycled and expose no reliable GUID. Never
+    -- remember a guessed identity or round-robin between identical names.
+    if #matches == 1 and isVisible(matches[1]) then
+        return matches[1]
     end
-
-    if guid then
-        self.destinationNameplates[guid] = assigned
-    end
-    return assigned
 end

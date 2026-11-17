@@ -58,6 +58,8 @@ local function resetMessage(message)
     message.showIcon = nil
     message.riseDirection = nil
     message.aoeOffsetY = nil
+    message.originX = nil
+    message.originY = nil
 end
 
 function addon:CreateDamageMessage()
@@ -149,15 +151,17 @@ function addon:UpdateDamageMessage(message, elapsed)
     end
 
     message:ClearAllPoints()
-    message:SetPoint("CENTER", message.anchor, "CENTER", x, y)
+    -- SetPoint offsets use this frame's scale; layout uses UIParent units.
+    message:SetScale(scale)
+    message:SetPoint("CENTER", message.anchor, "CENTER", x / scale, y / scale)
     message.currentX = x
     message.currentY = y
-    message:SetScale(scale)
     message:SetAlpha(alpha)
     return true
 end
 
 function addon:OnRendererUpdate(elapsed)
+    self:RefreshDamagePositions(GetTime())
     for index = #self.activeMessages, 1, -1 do
         local message = self.activeMessages[index]
         if not self:UpdateDamageMessage(message, elapsed) then
@@ -168,6 +172,46 @@ function addon:OnRendererUpdate(elapsed)
     if #self.activeMessages == 0 then
         self.rendererFrame:SetScript("OnUpdate", nil)
         self.rendererRunning = false
+    end
+end
+
+function addon:RefreshDamagePositions(now)
+    local resolveTargets = not self.nextDamageTargetRefresh or now >= self.nextDamageTargetRefresh
+    if resolveTargets then
+        self.nextDamageTargetRefresh = now + 0.1
+    end
+    local changed = false
+    for _, message in ipairs(self.activeMessages) do
+        local frame = message.targetFrame
+        if resolveTargets or frame and frame.IsVisible and not frame:IsVisible() then
+            local target, streamTarget = self:GetDamagePlacement(message.damage, now)
+            if target ~= frame or streamTarget ~= message.streamTarget then
+                message.targetFrame = target
+                message.streamTarget = streamTarget
+                changed = true
+            end
+        end
+    end
+    if changed then
+        self:EnforceActiveStreamLimits()
+    end
+
+    -- Follow movement every frame without remeasuring text or scanning all
+    -- WorldFrame children every frame. Relayout each affected cluster once.
+    local seen = {}
+    local targets = {}
+    for _, message in ipairs(self.activeMessages) do
+        local key = message.streamTarget
+        if not seen[key] then
+            seen[key] = true
+            local x, y = self:GetDamageOrigin(message.targetFrame)
+            if changed or x ~= message.originX or y ~= message.originY then
+                targets[#targets + 1] = { key = key, x = x, y = y }
+            end
+        end
+    end
+    for _, target in ipairs(targets) do
+        self:LayoutDamageCluster(target.key, target.x, target.y)
     end
 end
 
@@ -534,6 +578,7 @@ function addon:GetAoeClusterOffset(streamTarget, messages, direction, screenTop,
 end
 
 function addon:LayoutDamageCluster(streamTarget, originX, originY)
+    local requestedX, requestedY = originX, originY
     local streams = {
         direct = {},
         periodic = {},
@@ -647,7 +692,7 @@ function addon:LayoutDamageCluster(streamTarget, originX, originY)
     end
     if highest and highest - lowest > top - bottom and #placed > 1 then
         self:RemoveOldestClusterMessage(streamTarget)
-        return self:LayoutDamageCluster(streamTarget, originX, originY)
+        return self:LayoutDamageCluster(streamTarget, requestedX, requestedY)
     end
     local shiftY = 0
     if highest and highest > top then
@@ -663,6 +708,8 @@ function addon:LayoutDamageCluster(streamTarget, originX, originY)
 
     local aoeOffsetY = self:GetAoeClusterOffset(streamTarget, placed, direction, top, bottom)
     for _, message in ipairs(placed) do
+        message.originX = requestedX
+        message.originY = requestedY
         message.baseY = message.baseY + aoeOffsetY
         message.aoeOffsetY = aoeOffsetY
         message.currentX = message.baseX
@@ -911,7 +958,6 @@ function addon:InitializeRenderer()
     self.activeMessages = {}
     self.freeMessages = {}
     self.createdMessages = 0
-    self.destinationNameplates = {}
     self.aoePreviewTargets = {}
     for index = 1, 3 do
         local frame = CreateFrame("Frame", nil, UIParent)

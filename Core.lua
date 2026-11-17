@@ -552,7 +552,6 @@ function addon:OnEvent(event, ...)
     elseif event == "PLAYER_ENTERING_WORLD" then
         self:RefreshUnitGuids()
         self.iconHistory = {}
-        self.destinationNameplates = {}
         self.nextNameplateScan = nil
         self:ApplyRuntimeSettings()
     elseif event == "UNIT_PET" then
